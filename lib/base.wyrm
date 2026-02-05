@@ -23,4 +23,18 @@ fun for {name start count blk} do
   loop $start
 end
 
-export for while do-times read-line
+fun cond {clauses} do
+  fun walk {i} do
+    if {< $i [+ [len $clauses] 1]} do
+      var clause [ref $clauses $i]
+      if {eval [ref $clause 1]} do
+        eval [ref $clause 2]
+      else
+        walk [+ $i 1]
+      end
+    end
+  end
+  walk 1
+end
+
+export for while do-times read-line cond

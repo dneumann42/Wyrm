@@ -1,10 +1,14 @@
-
 fun start-repl {} do
-  fun loop {} do
-
-  end
+    var running 1
+    while {> $running 0} do
+        var inp [read-line "> "]
+        if {[ = $inp "q" ]} do
+            running= 0
+        else
+            var res [try {eval [read $inp]}]
+            print $res
+        end
+    end
 end
-
-print $x
 
 export start-repl

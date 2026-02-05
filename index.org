@@ -1,0 +1,7 @@
+#+TITLE: Wyrm
+
+* Overview
+
+Wyrm is a tool language, designed for building quick and simple programs, configuring software and scripting games.
+
+
