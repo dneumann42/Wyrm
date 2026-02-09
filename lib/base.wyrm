@@ -1,24 +1,48 @@
-fun do-times {n blk} do
+transparent-fun do-times {n blk} do
   if {> $n 0} do
-     eval $blk
-     do-times [- $n 1] $blk
+    var result [eval $blk]
+    if {break? $result} do
+      0
+    else
+      if {return? $result} do
+        propagate $result
+      else
+        do-times [- $n 1] $blk
+      end
+    end
   end
 end
 
-fun while {exp blk} do
+transparent-fun while {exp blk} do
   if {eval $exp} do
-    eval $blk
-    while $exp $blk
+    var result [eval $blk]
+    if {break? $result} do
+      0
+    else
+      if {return? $result} do
+        propagate $result
+      else
+        recr {while $exp $blk}
+      end
+    end
   end
 end
 
-fun for {name start count blk} do
-  fun loop {i} do
-     var $name $i
-     eval $blk
-     if {< $i [eval $count]} do
-       loop [+ $i 1]
-     end
+transparent-fun for {name start limit blk} do
+  transparent-fun loop {i} do
+    var $name $i
+    var result [eval $blk]
+    if {break? $result} do
+      0
+    else
+      if {return? $result} do
+        propagate $result
+      else
+        if {< $i [eval $limit]} do
+          loop [+ $i 1]
+        end
+      end
+    end
   end
   loop $start
 end

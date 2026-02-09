@@ -346,6 +346,10 @@ local wyrm_base = {
         env_set(env, args[2], set_tag({ args[3][1], args[4] }, "fun"))
         return nil
     end,
+    ["transparent-fun"] = function(args, env)
+        env_set(env, args[2], set_tag({ args[3][1], args[4] }, "transparent-fun"))
+        return nil
+    end,
     ["if"] = function(args, env, eval)
         if eval(args[2], env) then
             return eval(args[3], env)
@@ -369,6 +373,18 @@ local wyrm_base = {
     end,
     ["read"] = function(args)
         return read(args[2])
+    end,
+    ["recr"] = function(args, env, eval)
+        return set_tag({ args[2], env }, "recur")
+    end,
+    ["break"] = function(args, env, eval)
+        return set_tag({}, "break")
+    end,
+    ["continue"] = function(args, env, eval)
+        return set_tag({}, "continue")
+    end,
+    ["return"] = function(args, env, eval)
+        return set_tag({ args[2] }, "return")
     end,
     ["lua"] = function(args, env, eval)
         local code = {}
@@ -428,6 +444,24 @@ local wyrm_base = {
     ["num"] = function(args)
         return tonumber(args[2])
     end,
+    ["break?"] = function(args)
+        return type(args[2]) == "table" and tag_is(args[2], "break")
+    end,
+    ["continue?"] = function(args)
+        return type(args[2]) == "table" and tag_is(args[2], "continue")
+    end,
+    ["return?"] = function(args)
+        return type(args[2]) == "table" and tag_is(args[2], "return")
+    end,
+    ["return-value"] = function(args)
+        if type(args[2]) == "table" and tag_is(args[2], "return") then
+            return args[2][1]
+        end
+        return nil
+    end,
+    ["propagate"] = function(args)
+        return args[2]
+    end,
 }
 
 local function apply(args, env, eval)
@@ -439,17 +473,34 @@ local function apply(args, env, eval)
         error("[Error] cannot apply, undefined symbol " .. tostring(args[1]))
         return nil
     end
-    if type(cmd) == "table" and tag_is(cmd, "fun") then
+    if type(cmd) == "table" and (tag_is(cmd, "fun") or tag_is(cmd, "transparent-fun")) then
+        local is_transparent = tag_is(cmd, "transparent-fun")
         env = next_env(env)
         local params = cmd[1]
         local body = cmd[2]
         for i = 2, #args do
             env_set(env, params[i - 1], args[i])
         end
-        return eval(body, env)
+        local result = eval(body, env)
+        -- Trampoline: loop on recur values instead of recursing
+        while type(result) == "table" and tag_is(result, "recur") do
+            result = eval(result[1], result[2])
+        end
+        -- Only unwrap return values for regular functions, not transparent ones
+        if not is_transparent and type(result) == "table" and tag_is(result, "return") then
+            return result[1]
+        end
+        return result
     end
     if type(cmd) == "function" then
-        return cmd(args, env, eval)
+        local result = cmd(args, env, eval)
+        -- Trampoline: loop on recur values instead of recursing
+        while type(result) == "table" and tag_is(result, "recur") do
+            result = eval(result[1], result[2])
+        end
+        -- Don't unwrap return values here - built-in functions like 'return'
+        -- need to return tagged values so they can propagate up
+        return result
     end
 
     error("[Error] cannot apply")
@@ -461,6 +512,13 @@ local function evaluate(exp, env)
         local value = nil
         for i = 1, #exp do
             value = evaluate(exp[i], env)
+            -- Propagate control flow tags immediately
+            if type(value) == "table" then
+                local tag = get_tag(value)
+                if tag == "break" or tag == "continue" or tag == "return" then
+                    return value
+                end
+            end
         end
         return value
     end
@@ -471,6 +529,12 @@ local function evaluate(exp, env)
         return env_get(env, exp:sub(2))
     end
     if type(exp) == "table" then
+        -- Don't try to apply control flow tagged values
+        local tag = get_tag(exp)
+        if tag == "break" or tag == "continue" or tag == "return" then
+            return exp
+        end
+
         local args = {}
         for i = 1, #exp do
             if tag_is(exp[i], "script") then
@@ -546,38 +610,28 @@ function Wyrm.new()
     end
 
     function self:eval_expr(expr)
-        return evaluate(expr, next_env(self.env))
+        local result = evaluate(expr, next_env(self.env))
+        -- Unwrap return values at the top level
+        if type(result) == "table" and tag_is(result, "return") then
+            return result[1]
+        end
+        return result
     end
 
     return self
 end
 
-if select('#', ...) == 0 then
+if select("#", ...) == 0 then
     local wyrm = Wyrm.new()
     wyrm:load_module("lib/base.wyrm")
     wyrm:load_module("lib/repl.wyrm")
     wyrm:eval([=[
-    fun factorial {n} do
-      if {< $n 2} do
-        1
-      else
-        * $n [factorial [- $n 1] ]
-      end
-    end
 
-    print [factorial 5]
-
-    var age [num [read-line "Age? "]]
-    cond do
-      {> $age 100} do
-        print "YOU ARE OLD"
-      end
-      {> $age 50} do
-        print "MIDDLE OF LIFE BUD"
-      end
-      true do
-        print "COOL!"
-      end
+    print "Start!"
+    var n 0
+    while {< $n 10} do
+      print $n
+      n= [+ $n 1]
     end
 
     ]=])
